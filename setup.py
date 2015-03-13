@@ -6,7 +6,7 @@ import os
 
 requirements = [
     "sphinx", "sphinx-argparse", "pyserial", "numpy", "scipy",
-    "python-dateutil", "prettytable", "h5py"
+    "python-dateutil", "prettytable", "h5py", "aiohttp"
 ]
 
 scripts = [
@@ -15,6 +15,7 @@ scripts = [
     "artiq_master=artiq.frontend.artiq_master:main",
     "artiq_rpctool=artiq.frontend.artiq_rpctool:main",
     "artiq_run=artiq.frontend.artiq_run:main",
+    "artiq_param_bridge=artiq.frontend.artiq_param_bridge:main",
     "lda_controller=artiq.frontend.lda_controller:main",
     "novatech409b_controller=artiq.frontend.novatech409b_controller:main",
     "pdq2_client=artiq.frontend.pdq2_client:main",

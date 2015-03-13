@@ -4,6 +4,7 @@ import asyncio
 import argparse
 import atexit
 import os
+import subprocess
 
 from artiq.protocols.pc_rpc import Server
 from artiq.protocols.sync_struct import Publisher
@@ -87,6 +88,8 @@ def main():
     loop.run_until_complete(server_notify.start(
         args.bind, args.port_notify))
     atexit.register(lambda: loop.run_until_complete(server_notify.stop()))
+
+    subprocess.Popen(["artiq_param_bridge"])
 
     loop.run_forever()
 
