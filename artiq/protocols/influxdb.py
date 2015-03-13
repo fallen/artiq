@@ -1,4 +1,3 @@
-import socket
 import json
 import logging
 import aiohttp
@@ -33,19 +32,6 @@ class InfluxdbWriter:
         columns = list(fields)
         points = [[fields[k] for k in columns]]
         return (yield from self.write_points(name, columns, points))
-
-
-class InfluxdbUDP(InfluxdbWriter):
-    def __init__(self, host, port=8085):
-        info = socket.getaddrinfo(host, port, 0, socket.SOCK_DGRAM)
-        family, type, proto, addrlen, addr_port = info[0]
-        logger.debug("%s", (family, type, addr_port))
-        self.socket = socket.socket(family, type, proto)
-        self.addr_port = addr_port
-
-    def write(self, *data):
-        data = json.dumps(data).encode("utf8")
-        self.socket.sendto(data, self.addr_port)
 
 
 class Influxdb(InfluxdbWriter):
@@ -83,35 +69,3 @@ class Influxdb(InfluxdbWriter):
         return (yield from self.request(
             "db/{}/series".format(self.database),
             data=json.dumps(data), **kwargs))
-
-    def query(self, q, chunked=False, **kwargs):
-        response = self.request(
-            "db/{}/series".format(self.database),
-            stream=chunked, q=q, chunked="true" if chunked else "false",
-            **kwargs)
-        if chunked:
-            return (yield from self.read_chunks(response))
-        else:
-            return response.json()
-
-    def read_chunks(self, response):
-        d = json.JSONDecoder()
-        s = ""
-        for chunk in (yield from response.read()).iter_content(chunk_size=self.chunk_size):
-            s += chunk.decode()
-            while True:
-                try:
-                    obj, pos = d.raw_decode(s)
-                    s = s[pos:]
-                    yield obj
-                except:
-                    break
-        assert not s.strip()
-
-    def list_series(self):
-        return [_[1] for _ in self.query("list series")[0]["points"]]
-
-    def delete_series(self, series):
-        return self.request(
-            "db/{}/series/{}".format(self.database, series),
-            method="DELETE", status=204)
