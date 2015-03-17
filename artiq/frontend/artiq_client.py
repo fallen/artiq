@@ -141,7 +141,6 @@ def _action_del_parameter(remote, args):
     remote.delete(args.name)
 
 
-@asyncio.coroutine
 def _show_queue(queue):
     clear_screen()
     if queue:
@@ -159,7 +158,6 @@ def _show_queue(queue):
         print("Queue is empty")
 
 
-@asyncio.coroutine
 def _show_timed(timed):
     clear_screen()
     if timed:
@@ -180,7 +178,6 @@ def _show_timed(timed):
         print("No timed schedule")
 
 
-@asyncio.coroutine
 def _show_devices(devices):
     clear_screen()
     table = PrettyTable(["Name", "Description"])
@@ -190,7 +187,6 @@ def _show_devices(devices):
     print(table)
 
 
-@asyncio.coroutine
 def _show_parameters(parameters):
     clear_screen()
     table = PrettyTable(["Parameter", "Value"])

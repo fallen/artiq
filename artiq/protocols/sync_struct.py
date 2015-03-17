@@ -108,7 +108,7 @@ class Subscriber:
                     process_mod(target, mod)
 
             if self.notify_cb is not None:
-                yield from self.notify_cb(mod)
+                self.notify_cb(mod)
 
 
 class Notifier:
