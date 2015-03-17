@@ -21,8 +21,8 @@ def get_argparser():
         help="user credential for Influxdb connexion")
     group.add_argument(
         "--password", "-p", default="root",
-        help="password credential for Influxdb connexion")
-    group = parser.add_argument_group("database informations")
+        help="password credential for Influxdb connection")
+    group = parser.add_argument_group("database information")
     group.add_argument(
         "--database", "-d", default="db0",
         help="database name to use"
