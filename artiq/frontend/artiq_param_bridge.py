@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import asyncio
-import os
 import atexit
 import argparse
 
@@ -36,31 +35,26 @@ def get_argparser():
 
 
 def make_param_changed(infdb, table):
-    @asyncio.coroutine
     def param_changed(mod):
         if mod["action"] == "setitem":
             param = mod["key"]
             value = mod["value"]
             columns = "parameter", "value"
             points = [[param, value]]
-            yield from infdb.write_points(table, columns, points)
+            asyncio.async(infdb.write_points(table, columns, points))
         elif mod["action"] == "init":
             paramdict = mod["struct"]
             for param, value in paramdict.items():
                 columns = "parameter", "value"
                 points = [[param, value]]
-                yield from infdb.write_points(table, columns, points)
+                asyncio.async(infdb.write_points(table, columns, points))
     return param_changed
 
 
 def main():
     args = get_argparser().parse_args()
 
-    if os.name == "nt":
-        loop = asyncio.ProactorEventLoop()
-        asyncio.set_event_loop(loop)
-    else:
-        loop = asyncio.get_event_loop()
+    loop = asyncio.get_event_loop()
 
     atexit.register(lambda: loop.close())
 
