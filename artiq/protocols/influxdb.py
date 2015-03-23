@@ -59,7 +59,6 @@ class Influxdb(InfluxdbWriter):
         headers = {"Content-type": "application/json", "Accept": "text/plain"}
         response = (yield from aiohttp.request(
             method, self._baseurl + url, params=_params, data=data, headers=headers))
-        json_answer = (yield from response.read())
         if response.status != status:
             raise InfluxdbError(response)
         return response

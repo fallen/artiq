@@ -34,6 +34,16 @@ def get_argparser():
     return parser
 
 
+@asyncio.coroutine
+def write_points(infdb, table, columns, points):
+    try:
+        response = yield from infdb.write_points(table, columns, points)
+        yield from response.release()
+        del response
+    except:
+        pass
+
+
 def make_param_changed(infdb, table):
     def param_changed(mod):
         if mod["action"] == "setitem":
@@ -41,13 +51,13 @@ def make_param_changed(infdb, table):
             value = mod["value"]
             columns = "parameter", "value"
             points = [[param, value]]
-            asyncio.async(infdb.write_points(table, columns, points))
+            asyncio.async(write_points(infdb, table, columns, points))
         elif mod["action"] == "init":
             paramdict = mod["struct"]
             for param, value in paramdict.items():
                 columns = "parameter", "value"
                 points = [[param, value]]
-                asyncio.async(infdb.write_points(table, columns, points))
+                asyncio.async(write_points(infdb, table, columns, points))
     return param_changed
 
 
