@@ -3,9 +3,11 @@ from migen.fhdl.std import *
 from artiq.gateware.rtio import rtlink
 
 class OSerdese2(Module):
-    def __init__(self, pad, o, oe):
+    def __init__(self, pad):
 
         q = TSTriple()
+        self.o = o = Signal(8)
+        self.oe = oe = Signal(8)
         self.submodules += q.get_tristate(pad)
         t = Signal()
         self.comb += q.oe.eq(~t)
@@ -31,7 +33,8 @@ class Output(Module):
         o0 = Signal()
         oe = Signal()
 
-        self.submodules.oserdese2 = OSerdese2(pad, o, oe)
+        io = OSerdese2(pad)
+        self.submodules += io
 
         # dout
         edges = Array([0xff^((1<<i) - 1) for i in range(8)])
@@ -40,14 +43,23 @@ class Output(Module):
         rise_out = Signal()
         fall_out = Signal()
         self.comb += [
-                edge_out.eq(edges[self.rtlink.o.fine_ts]),
-                edge_out_n.eq(~edge_out),
-                rise_out.eq(~o0 & o),
-                fall_out.eq(o0 & ~o),
-                ]
+            edge_out.eq(edges[self.rtlink.o.fine_ts]),
+            edge_out_n.eq(~edge_out),
+            rise_out.eq(~o0 & o),
+            fall_out.eq(o0 & ~o),
+            io.oe.eq(Replicate(oe, 8)),
+            If(rise_out,
+                io.o.eq(edge_out),
+            ).Elif(fall_out,
+                io.o.eq(edge_out_n),
+            ).Else(
+                io.o.eq(Replicate(o, 8)),
+            )
+        ]
+
         self.sync += [
-                If(self.rtlink.o.stb,
-                    o.eq(self.rtlink.o.data),
-                ),
-                o0.eq(o),
-                ]
+            If(self.rtlink.o.stb,
+                o.eq(self.rtlink.o.data),
+            ),
+            o0.eq(o),
+        ]
