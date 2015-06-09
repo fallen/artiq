@@ -11,17 +11,20 @@ from targets.kc705 import MiniSoC
 
 from artiq.gateware.soc import AMPSoC
 from artiq.gateware import rtio, nist_qc1, nist_qc2
-from artiq.gateware.rtio.phy import ttl_simple, ttl_k7, dds
+from artiq.gateware.rtio.phy import ttl_simple, ttl_7series, dds
 
 
 class _RTIOCRG(Module, AutoCSR):
     def __init__(self, platform, rtio_internal_clk):
         self._clock_sel = CSRStorage()
         self.clock_domains.cd_rtio = ClockDomain(reset_less=True)
-        self.clock_domains.cd_rtiox8 = ClockDomain(reset_less=True)
+        self.clock_domains.cd_rtiox4 = ClockDomain(reset_less=True)
 
-        rtio_clock = Signal()
+        rtio_clock_mux_output = Signal()
+        rtio_clk = Signal()
+        rtiox4_clk = Signal()
         pll_fb = Signal()
+        rtio_phy_pll_rst = CSRStorage(reset=1)
 
         rtio_external_clk = Signal()
         user_sma_clock = platform.request("user_sma_clock")
@@ -33,19 +36,24 @@ class _RTIOCRG(Module, AutoCSR):
                                   i_I0=rtio_internal_clk,
                                   i_I1=rtio_external_clk,
                                   i_S=self._clock_sel.storage,
-                                  o_O=rtio_clock)
+                                  o_O=rtio_clock_mux_output)
 
         self.specials += Instance("PLLE2_BASE",
                                   p_CLKIN1_PERIOD=8.0,  # 125 MHz
                                   p_CLKFBOUT_MULT=8, p_DIVCLK_DIVIDE=1,
-                                  i_CLKIN1=rtio_clock,
+                                  i_CLKIN1=rtio_clock_mux_output,
                                   i_CLKFBIN=pll_fb, o_CLKFBOUT=pll_fb,
-                                  i_RST=ResetSignal(),
+                                  i_RST=rtio_phy_pll_rst.storage,
                                   p_CLKOUT0_DIVIDE=8, p_CLKOUT0_PHASE=0.0,
-                                  o_CLKOUT0=self.cd_rtio.clk,  # 125 MHz
-                                  p_CLKOUT1_DIVIDE=1, p_CLKOUT1_PHASE=0.0,
-                                  o_CLKOUT1=self.cd_rtiox8.clk  # 1 GHz
+                                  o_CLKOUT0=rtio_clk,  # 125 MHz
+                                  p_CLKOUT1_DIVIDE=2, p_CLKOUT1_PHASE=0.0,
+                                  o_CLKOUT1=rtiox4_clk  # 500 MHz
                                   )
+
+        self.specials += Instance("BUFG", i_I=rtiox4_clk,
+                                  o_O=self.cd_rtiox4.clk)
+
+        self.specials += Instance("BUFG", i_I=rtio_clk, o_O=self.cd_rtio.clk)
 
 
 class _NIST_QCx(MiniSoC, AMPSoC):
@@ -84,9 +92,11 @@ class _NIST_QCx(MiniSoC, AMPSoC):
             self.platform.add_platform_command("""
 create_clock -name rsys_clk -period 8.0 [get_nets {rsys_clk}]
 create_clock -name rio_clk -period 8.0 [get_nets {rio_clk}]
+create_clock -name rio_clkx4 -period 2.0 [get_nets {rio_clkx4}]
 set_false_path -from [get_clocks rsys_clk] -to [get_clocks rio_clk]
 set_false_path -from [get_clocks rio_clk] -to [get_clocks rsys_clk]
-""", rsys_clk=self.rtio.cd_rsys.clk, rio_clk=self.rtio.cd_rio.clk)
+""",rsys_clk=self.rtio.cd_rsys.clk, rio_clk=self.rtio.cd_rio.clk,
+                                          rio_clkx4=self.rtio_crg.cd_rtiox4.clk)
 
         rtio_csrs = self.rtio.get_csrs()
         self.submodules.rtiowb = wbgen.Bank(rtio_csrs)
@@ -112,13 +122,18 @@ class NIST_QC1(_NIST_QCx):
             self.submodules += phy
             rtio_channels.append(rtio.Channel.from_phy(phy, ififo_depth=512))
 
-        for i in range(15):
+        for i in range(14):
             phy = ttl_simple.Output(platform.request("ttl", i))
             self.submodules += phy
             rtio_channels.append(rtio.Channel.from_phy(phy))
 
-        phy = RenameClockDomains(ttl_k7.Output(platform.request("ttl", 15)),
-                                 {"sys": "rio", "sys8": ""})
+        phy = ttl_7series.Output(platform.request("ttl", 14))
+        self.submodules += phy
+        rtio_channels.append(rtio.Channel.from_phy(phy))
+
+        phy = ttl_7series.Output(platform.request("ttl", 15))
+        self.submodules += phy
+        rtio_channels.append(rtio.Channel.from_phy(phy))
 
         phy = ttl_simple.Output(platform.request("user_led", 2))
         self.submodules += phy
