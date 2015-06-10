@@ -121,11 +121,12 @@ class Inout(Module):
 
         self.submodules.pe = pe = PriorityEncoder(8)
 
-        self.sync.rio_phy += [
-            i0.eq(i[-1]),
+        self.sync.rio_phy += i0.eq(i[-1])
+
+        self.sync.rio += [
             If(self.rtlink.o.stb & (self.rtlink.o.address == 2),
                 self.sensitivity.eq(self.rtlink.o.data)
-            ),
+            )
         ]
 
         self.comb += [
@@ -153,6 +154,7 @@ class Inout(Module):
         fall_out = Signal()
 
         self.comb += [
+            timestamp.eq(self.rtlink.o.fine_ts),
             edge_out.eq(edges[timestamp]),
             edge_out_n.eq(~edge_out),
             rise_out.eq(~previous_o & o),
@@ -171,10 +173,6 @@ class Inout(Module):
             If(self.rtlink.o.stb,
                 If(self.rtlink.o.address == 0, o.eq(self.rtlink.o.data[0])),
                 If(self.rtlink.o.address == 1, oe.eq(self.rtlink.o.data[0])),
-            ),
-            If(self.rtlink.o.stb,
-                timestamp.eq(self.rtlink.o.fine_ts),
-                o.eq(self.rtlink.o.data),
             ),
             previous_o.eq(o),
         ]
@@ -250,9 +248,8 @@ class InoutTB(Module):
             print("OK")
 
     def gen_simulation(self, selfp):
-
         selfp.io.sensitivity = 0b11  # rising + falling
-
+        self.check_output_enable(selfp, 0)
         yield
         selfp.io.io.i = 0b11111110  # rising edge at fine_ts = 1
         yield
@@ -270,6 +267,23 @@ class InoutTB(Module):
         selfp.io.io.i = 0b11110000  # rising edge at fine_ts = 4
         yield
         self.check_input(selfp, stb=1, fine_ts=4)
+        selfp.io.rtlink.o.address = 1
+        selfp.io.rtlink.o.data = 1
+        selfp.io.rtlink.o.stb = 1  # set Output Enable to 1
+        yield
+        selfp.io.rtlink.o.address = 0
+        selfp.io.rtlink.o.data = 1
+        selfp.io.rtlink.o.fine_ts = 3  # rising edge at fine_ts = 3
+        yield
+        self.check_output_enable(selfp, 1)
+        yield
+        selfp.io.rtlink.o.data = 0
+        selfp.io.rtlink.o.fine_ts = 0  # falling edge at fine_ts = 0
+        self.check_output(selfp, data=0b11111000)
+        yield
+        self.check_output(selfp, data=0xFF)  # stays at 1
+        yield
+        self.check_output(selfp, data=0)
 
         while True:
             yield
