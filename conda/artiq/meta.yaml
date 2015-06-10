@@ -4,7 +4,7 @@ package:
 
 source:
     git_url: https://github.com/fallen/artiq
-    git_tag: hires_rtio_output
+    git_tag: hires_rtio
 
 build:
     number: 0
