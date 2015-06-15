@@ -21,7 +21,7 @@ class OSerdese2(Module):
                                   i_D1=o[0], i_D2=o[1], i_D3=o[2], i_D4=o[3],
                                   i_D5=o[4], i_D6=o[5], i_D7=o[6], i_D8=o[7],
                                   i_TCE=1, i_OCE=1, i_RST=ResetSignal(),
-                                  i_T1=oe)
+                                  i_T1=~oe)
 
 class IOSerdese2(Module):
     def __init__(self, pad):
@@ -51,7 +51,7 @@ class IOSerdese2(Module):
                                   i_D1=o[0], i_D2=o[1], i_D3=o[2], i_D4=o[3],
                                   i_D5=o[4], i_D6=o[5], i_D7=o[6], i_D8=o[7],
                                   i_TCE=1, i_OCE=1, i_RST=ResetSignal(),
-                                  i_T1=oe)
+                                  i_T1=~oe)
 
 
 class Output(Module):
@@ -145,6 +145,7 @@ class Inout(Module):
         # Output management
         o = Signal()
         oe = Signal()
+        self.oe = oe
         previous_o = Signal()
         timestamp = Signal(3)
         edges = Array([0xff ^ ((1 << i) - 1) for i in range(8)])
