@@ -77,6 +77,7 @@ class Output(Module):
         rise_out = Signal()
         fall_out = Signal()
         self.comb += [
+            timestamp.eq(self.rtlink.o.fine_ts),
             edge_out.eq(edges[timestamp]),
             edge_out_n.eq(~edge_out),
             rise_out.eq(~previous_o & o),
@@ -93,7 +94,6 @@ class Output(Module):
 
         self.sync.rio_phy += [
             If(self.rtlink.o.stb,
-                timestamp.eq(self.rtlink.o.fine_ts),
                 o.eq(self.rtlink.o.data),
             ),
             previous_o.eq(o),
