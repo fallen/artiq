@@ -207,7 +207,6 @@ class OutputTB(Module):
         yield
         selfp.o.rtlink.o.stb = 0
         yield
-
         selfp.o.rtlink.o.data = 0
         selfp.o.rtlink.o.fine_ts = 2
         selfp.o.rtlink.o.stb = 1
@@ -284,8 +283,13 @@ class InoutTB(Module):
         yield
         self.check_output(selfp, data=0xFF)  # stays at 1
         yield
+        selfp.io.rtlink.o.data = 1
+        selfp.io.rtlink.o.fine_ts = 7
         self.check_output(selfp, data=0)
-
+        yield
+        self.check_output(selfp, data=0)
+        yield
+        self.check_output(selfp, data=0b10000000)
         while True:
             yield
 
