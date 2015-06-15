@@ -306,4 +306,4 @@ if __name__ == "__main__":
 
     with Simulator(eval(sys.argv[1]), TopLevel("top.vcd", clk_period=int(1/0.125)),
                    icarus.Runner(keep_files=False,)) as s:
-        s.run(20000)
+        s.run(200)
