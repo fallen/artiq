@@ -1,0 +1,7 @@
+version: 1.0.{build}
+clone_depth: 20
+build_script:
+- ps: >-
+    Invoke-WebRequest https://www.python.org/ftp/python/3.4.3/python-3.4.3.amd64.msi -OutFile c:\python-3.4.3.amd64.msi
+
+    msiexec /i c:\python-3.4.3.amd64.msi
