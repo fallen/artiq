@@ -21,6 +21,13 @@ _mode_enc = {
     "in": 3
 }
 
+class LeftClickMenuQLabel(QtGui.QLabel):
+    def mousePressEvent(self, event):
+        app = QtGui.QApplication.instance()
+        app.sendEvent(self,
+                      QtGui.QContextMenuEvent(QtGui.QContextMenuEvent.Mouse,
+                                              QtCore.QPoint()))
+
 
 class _TTLWidget(QtGui.QFrame):
     def __init__(self, send_to_device, channel, force_out, name):
@@ -45,7 +52,7 @@ class _TTLWidget(QtGui.QFrame):
         self._override = QtGui.QLabel()
         self._override.setAlignment(QtCore.Qt.AlignCenter)
         grid.addWidget(self._override, 3, 1)
-        self._value = QtGui.QLabel()
+        self._value = LeftClickMenuQLabel()
         self._value.setAlignment(QtCore.Qt.AlignCenter)
         grid.addWidget(self._value, 4, 1, 6, 1)
 
@@ -129,7 +136,7 @@ class _DDSWidget(QtGui.QFrame):
         label.setAlignment(QtCore.Qt.AlignCenter)
         grid.addWidget(label, 1, 1)
 
-        self._value = QtGui.QLabel()
+        self._value = LeftClickMenuQLabel()
         self._value.setAlignment(QtCore.Qt.AlignCenter)
         grid.addWidget(self._value, 2, 1, 6, 1)
 
