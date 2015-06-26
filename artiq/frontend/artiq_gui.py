@@ -38,6 +38,15 @@ def get_argparser():
     return parser
 
 
+class StatusBar(QtGui.QStatusBar):
+    def __init__(self):
+        QtGui.QStatusBar.__init__(self)
+        self.permanent_widget = QtGui.QLabel()
+        self.addPermanentWidget(self.permanent_widget)
+
+    def showMessage(self, text):
+        self.permanent_widget.setText(text)
+
 def main():
     args = get_argparser().parse_args()
 
@@ -57,7 +66,7 @@ def main():
     win.setWindowIcon(QtGui.QIcon(os.path.join(data_dir, "icon.png")))
     area = dockarea.DockArea()
     win.setCentralWidget(area)
-    status_bar = QtGui.QStatusBar()
+    status_bar = StatusBar()
     status_bar.showMessage("Connected to {}".format(args.server))
     win.setStatusBar(status_bar)
     win.resize(1400, 800)
