@@ -11,6 +11,7 @@ import socket
 from artiq.protocols.sync_struct import Subscriber
 from artiq.tools import verbosity_args, init_logger
 from artiq.tools import asyncio_process_wait_timeout
+from artiq.protocols.pc_rpc import AsyncioClient
 
 
 logger = logging.getLogger(__name__)
@@ -34,8 +35,28 @@ def get_argparser():
     return parser
 
 
+@asyncio.coroutine
+def asyncioclient_connect_retry(client, host, port, target, timeout=5):
+    @asyncio.coroutine
+    def connect_retry():
+        retry = True
+        while retry:
+            try:
+                yield from client.connect_rpc(host, port, target)
+                retry = False
+            except:
+                yield from asyncio.sleep(1)
+    yield from asyncio.wait_for(connect_retry(), timeout=timeout)
+
+
 class Controller:
-    def __init__(self, name, command, retry):
+    def __init__(self, name, command, host, port, retry):
+        self.host = host
+        self.port = port
+        self.name = name
+        self.process = None
+        self.connected = False
+        self.remotes = []
         self.launch_task = asyncio.Task(self.launcher(name, command, retry))
 
     @asyncio.coroutine
@@ -44,16 +65,68 @@ class Controller:
         yield from asyncio.wait_for(self.launch_task, None)
 
     @asyncio.coroutine
+    def _connect(self):
+        remote = AsyncioClient()
+        try:
+            yield from asyncioclient_connect_retry(remote, self.host, self.port,
+                                                   None)
+        except asyncio.TimeoutError:
+            logger.warning("Cannot connect to controller {}, terminating"
+                           .format(self.name))
+            yield from self.terminate()
+            return
+
+        targets, _ = remote.get_rpc_id()
+        remote.close_rpc()
+
+        for target in targets:
+            remote = AsyncioClient()
+            try:
+                yield from asyncioclient_connect_retry(remote, self.host,
+                                                       self.port, target)
+            except asyncio.TimeoutError:
+                logger.warning("Cannot connect to controller {}, terminating"
+                               .format(self.name))
+                yield from self.terminate()
+                return
+            self.remotes.append(remote)
+
+        self.connected = True
+
+    @asyncio.coroutine
+    def ping(self, remote):
+        if self.connected:
+            yield from remote.ping()
+
+    @asyncio.coroutine
+    def terminate(self):
+        if self.process is not None and self.process.returncode is None:
+            self.process.send_signal(signal.SIGTERM)
+            logger.debug("Signal sent")
+            try:
+                yield from asyncio_process_wait_timeout(self.process, 5.0)
+            except asyncio.TimeoutError:
+                self.process.kill()
+        for i in range(len(self.remotes)):
+            remote = self.remotes.pop()
+            remote.close_rpc()
+        self.connected = False
+        self.process = None
+
+    @asyncio.coroutine
     def launcher(self, name, command, retry):
-        process = None
         try:
             while True:
                 logger.info("Starting controller %s with command: %s",
                             name, command)
                 try:
-                    process = yield from asyncio.create_subprocess_exec(
-                        *shlex.split(command))
-                    yield from asyncio.shield(process.wait())
+                    if self.process is None:
+                        self.process = yield from asyncio.create_subprocess_exec(
+                            *shlex.split(command))
+                        asyncio.Task(self._connect())
+                        yield from asyncio.shield(self.process.wait())
+                    else:
+                        yield from asyncio.sleep(1)
                 except FileNotFoundError:
                     logger.warning("Controller %s failed to start", name)
                 else:
@@ -62,15 +135,8 @@ class Controller:
                 yield from asyncio.sleep(retry)
         except asyncio.CancelledError:
             logger.info("Terminating controller %s", name)
-            if process is not None and process.returncode is None:
-                process.send_signal(signal.SIGTERM)
-                logger.debug("Signal sent")
-                try:
-                    yield from asyncio_process_wait_timeout(process, 5.0)
-                except asyncio.TimeoutError:
-                    logger.warning("Controller %s did not respond to SIGTERM",
-                                   name)
-                    process.send_signal(signal.SIGKILL)
+            yield from self.terminate()
+
 
 
 def get_ip_addresses(host):
@@ -89,16 +155,30 @@ class Controllers:
         self.queue = asyncio.Queue()
         self.active = dict()
         self.process_task = asyncio.Task(self._process())
+        self.ping_task = asyncio.Task(self._ping())
+
+    @asyncio.coroutine
+    def _ping(self):
+        while True:
+            for controller_name, controller in self.active.items():
+                for remote in controller.remotes:
+                    f = controller.ping(remote)
+                    try:
+                        yield from asyncio.wait_for(f, timeout=2)
+                    except asyncio.TimeoutError:
+                        yield from controller.terminate()
+            yield from asyncio.sleep(1)
 
     @asyncio.coroutine
     def _process(self):
         while True:
             action, param = yield from self.queue.get()
             if action == "set":
-                k, command = param
+                k, command, host, port = param
                 if k in self.active:
                     yield from self.active[k].end()
-                self.active[k] = Controller(k, command, self.retry_command)
+                self.active[k] = Controller(k, command, host, port,
+                                            self.retry_command)
             elif action == "del":
                 yield from self.active[param].end()
                 del self.active[param]
@@ -111,7 +191,7 @@ class Controllers:
             command = v["command"].format(name=k,
                                           bind=self.host_filter,
                                           port=v["port"])
-            self.queue.put_nowait(("set", (k, command)))
+            self.queue.put_nowait(("set", (k, command, v["host"], v["port"])))
             self.active_or_queued.add(k)
 
     def __delitem__(self, k):
