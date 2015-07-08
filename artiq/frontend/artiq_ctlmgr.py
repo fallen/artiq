@@ -55,8 +55,6 @@ class Controller:
         self.port = port
         self.name = name
         self.process = None
-        self.connected = False
-        self.remotes = []
         self.launch_task = asyncio.Task(self.launcher(name, command, retry))
 
     @asyncio.coroutine
@@ -67,39 +65,47 @@ class Controller:
     @asyncio.coroutine
     def _connect(self):
         remote = AsyncioClient()
-        try:
-            yield from asyncioclient_connect_retry(remote, self.host, self.port,
-                                                   None)
-        except asyncio.TimeoutError:
-            logger.warning("Cannot connect to controller {}, terminating"
-                           .format(self.name))
-            yield from self.terminate()
-            return
-
+        yield from asyncioclient_connect_retry(remote, self.host, self.port,
+                                               None)
         targets, _ = remote.get_rpc_id()
         remote.close_rpc()
 
+        remotes = []
         for target in targets:
             remote = AsyncioClient()
-            try:
-                yield from asyncioclient_connect_retry(remote, self.host,
-                                                       self.port, target)
-            except asyncio.TimeoutError:
-                logger.warning("Cannot connect to controller {}, terminating"
-                               .format(self.name))
-                yield from self.terminate()
-                return
-            self.remotes.append(remote)
+            yield from asyncioclient_connect_retry(remote, self.host,
+                                                   self.port, target)
+            remotes.append(remote)
 
-        self.connected = True
+        return remotes
 
     @asyncio.coroutine
-    def ping(self, remote):
-        if self.connected:
-            yield from remote.ping()
+    def ping(self):
+        error = False
+        try:
+            remotes = yield from self._connect()
+        except:
+            logger.warning("Cannot connect to controller {}, terminating"
+                           .format(self.name))
+            yield from self.terminate()
+            raise IOError("Cannot connect to controller {}".format(self.name))
+
+        for remote in remotes:
+            try:
+                yield from asyncio.wait_for(remote.ping(), timeout=2)
+            except:
+                yield from self.terminate()
+                error = True
+                break
+            finally:
+                remote.close_rpc()
+
+        if error:
+            raise IOError("Controller {} ping timed out".format(self.name))
 
     @asyncio.coroutine
     def terminate(self):
+        logger.info("Terminating controller %s", self.name)
         if self.process is not None and self.process.returncode is None:
             self.process.send_signal(signal.SIGTERM)
             logger.debug("Signal sent")
@@ -107,10 +113,6 @@ class Controller:
                 yield from asyncio_process_wait_timeout(self.process, 5.0)
             except asyncio.TimeoutError:
                 self.process.kill()
-        for i in range(len(self.remotes)):
-            remote = self.remotes.pop()
-            remote.close_rpc()
-        self.connected = False
         self.process = None
 
     @asyncio.coroutine
@@ -123,18 +125,22 @@ class Controller:
                     if self.process is None:
                         self.process = yield from asyncio.create_subprocess_exec(
                             *shlex.split(command))
-                        asyncio.Task(self._connect())
-                        yield from asyncio.shield(self.process.wait())
-                    else:
-                        yield from asyncio.sleep(1)
+                    yield from asyncio_process_wait_timeout(self.process, 1)
                 except FileNotFoundError:
                     logger.warning("Controller %s failed to start", name)
+                except asyncio.TimeoutError:
+                    try:
+                        yield from self.ping()
+                    except:
+                        logger.warning("Failed to ping, "
+                                       "restarting in %.1f seconds", retry)
+                        yield from asyncio.sleep(retry)
                 else:
                     logger.warning("Controller %s exited", name)
-                logger.warning("Restarting in %.1f seconds", retry)
-                yield from asyncio.sleep(retry)
+                    logger.warning("Restarting in %.1f seconds", retry)
+                    self.process = None
+                    yield from asyncio.sleep(retry)
         except asyncio.CancelledError:
-            logger.info("Terminating controller %s", name)
             yield from self.terminate()
 
 
@@ -155,19 +161,6 @@ class Controllers:
         self.queue = asyncio.Queue()
         self.active = dict()
         self.process_task = asyncio.Task(self._process())
-        self.ping_task = asyncio.Task(self._ping())
-
-    @asyncio.coroutine
-    def _ping(self):
-        while True:
-            for controller_name, controller in self.active.items():
-                for remote in controller.remotes:
-                    f = controller.ping(remote)
-                    try:
-                        yield from asyncio.wait_for(f, timeout=2)
-                    except asyncio.TimeoutError:
-                        yield from controller.terminate()
-            yield from asyncio.sleep(1)
 
     @asyncio.coroutine
     def _process(self):
