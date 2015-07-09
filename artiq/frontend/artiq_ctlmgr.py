@@ -50,11 +50,14 @@ def asyncioclient_connect_retry(client, host, port, target, timeout=5):
 
 
 class Controller:
-    def __init__(self, name, command, host, port, retry):
+    def __init__(self, name, command, host, port, ping_timeout, ping_period,
+                 retry):
         self.host = host
         self.port = port
         self.name = name
         self.process = None
+        self.ping_timeout = ping_timeout
+        self.ping_period = ping_period
         self.launch_task = asyncio.Task(self.launcher(name, command, retry))
 
     @asyncio.coroutine
@@ -75,7 +78,8 @@ class Controller:
         remote = yield from self._connect()
 
         try:
-            yield from asyncio.wait_for(remote.ping(), timeout=2)
+            yield from asyncio.wait_for(remote.ping(),
+                                        timeout=self.ping_timeout)
         except:
             raise IOError("Controller {} ping timed out".format(self.name))
         finally:
@@ -103,7 +107,8 @@ class Controller:
                                     name, command)
                         self.process = yield from asyncio.create_subprocess_exec(
                             *shlex.split(command))
-                    yield from asyncio_process_wait_timeout(self.process, 1)
+                    yield from asyncio_process_wait_timeout(self.process,
+                                                            self.ping_period)
                 except FileNotFoundError:
                     logger.warning("Controller %s failed to start, "
                                    "restarting in %.1f seconds", name, retry)
@@ -149,10 +154,11 @@ class Controllers:
         while True:
             action, param = yield from self.queue.get()
             if action == "set":
-                k, command, host, port = param
+                k, command, host, port, ping_timeout, ping_period = param
                 if k in self.active:
                     yield from self.active[k].end()
                 self.active[k] = Controller(k, command, host, port,
+                                            ping_timeout, ping_period,
                                             self.retry_command)
             elif action == "del":
                 yield from self.active[param].end()
@@ -166,7 +172,17 @@ class Controllers:
             command = v["command"].format(name=k,
                                           bind=self.host_filter,
                                           port=v["port"])
-            self.queue.put_nowait(("set", (k, command, v["host"], v["port"])))
+            if "ping_timeout" in v:
+                ping_timeout = v["ping_timeout"]
+            else:
+                ping_timeout = 2
+
+            if "ping_period" in v:
+                ping_period = v["ping_period"]
+            else:
+                ping_period = 5
+            self.queue.put_nowait(("set", (k, command, v["host"], v["port"],
+                                           ping_timeout, ping_period)))
             self.active_or_queued.add(k)
 
     def __delitem__(self, k):
