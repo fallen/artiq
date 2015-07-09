@@ -65,43 +65,21 @@ class Controller:
     @asyncio.coroutine
     def _connect(self):
         remote = AsyncioClient()
-        yield from asyncioclient_connect_retry(remote, self.host, self.port,
-                                               None)
-        targets, _ = remote.get_rpc_id()
-        remote.close_rpc()
-
-        remotes = []
-        for target in targets:
-            remote = AsyncioClient()
-            yield from asyncioclient_connect_retry(remote, self.host,
-                                                   self.port, target)
-            remotes.append(remote)
-
-        return remotes
+        yield from remote.connect_rpc(self.host, self.port, None)
+        target, _ = remote.get_rpc_id()
+        remote.select_rpc_target(target[0])
+        return remote
 
     @asyncio.coroutine
     def ping(self):
-        error = False
+        remote = yield from self._connect()
+
         try:
-            remotes = yield from self._connect()
+            yield from asyncio.wait_for(remote.ping(), timeout=2)
         except:
-            logger.warning("Cannot connect to controller {}, terminating"
-                           .format(self.name))
-            yield from self.terminate()
-            raise IOError("Cannot connect to controller {}".format(self.name))
-
-        for remote in remotes:
-            try:
-                yield from asyncio.wait_for(remote.ping(), timeout=2)
-            except:
-                yield from self.terminate()
-                error = True
-                break
-            finally:
-                remote.close_rpc()
-
-        if error:
             raise IOError("Controller {} ping timed out".format(self.name))
+        finally:
+            remote.close_rpc()
 
     @asyncio.coroutine
     def terminate(self):
@@ -119,19 +97,23 @@ class Controller:
     def launcher(self, name, command, retry):
         try:
             while True:
-                logger.info("Starting controller %s with command: %s",
-                            name, command)
                 try:
                     if self.process is None:
+                        logger.info("Starting controller %s with command: %s",
+                                    name, command)
                         self.process = yield from asyncio.create_subprocess_exec(
                             *shlex.split(command))
                     yield from asyncio_process_wait_timeout(self.process, 1)
                 except FileNotFoundError:
-                    logger.warning("Controller %s failed to start", name)
+                    logger.warning("Controller %s failed to start, "
+                                   "restarting in %.1f seconds", name, retry)
+                    self.process = None
+                    yield from asyncio.sleep(retry)
                 except asyncio.TimeoutError:
                     try:
                         yield from self.ping()
                     except:
+                        yield from self.terminate()
                         logger.warning("Failed to ping, "
                                        "restarting in %.1f seconds", retry)
                         yield from asyncio.sleep(retry)
