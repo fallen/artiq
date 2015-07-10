@@ -172,15 +172,8 @@ class Controllers:
             command = v["command"].format(name=k,
                                           bind=self.host_filter,
                                           port=v["port"])
-            if "ping_timeout" in v:
-                ping_timeout = v["ping_timeout"]
-            else:
-                ping_timeout = 2
-
-            if "ping_period" in v:
-                ping_period = v["ping_period"]
-            else:
-                ping_period = 5
+            ping_timeout = v.get("ping_timeout", 2)
+            ping_period = v.get("ping_period", 5)
             self.queue.put_nowait(("set", (k, command, v["host"], v["port"],
                                            ping_timeout, ping_period)))
             self.active_or_queued.add(k)
