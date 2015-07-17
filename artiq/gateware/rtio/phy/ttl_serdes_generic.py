@@ -11,32 +11,52 @@ class Output(Module):
         serdes_width = 2**fine_ts_width
         o = Signal()
         previous_o = Signal()
-        oe = Signal()
-        timestamp = Signal(fine_ts_width)
+        override_en = Signal()
+        override_o = Signal()
+        io_o = Signal()
+        self.overrides = [override_en, override_o]
 
         io = serdes
         self.submodules += io
 
-        # dout
-        edges = Array([0xff ^ ((1 << i) - 1) for i in range(serdes_width)])
-        edge_out = Signal(serdes_width)
-        edge_out_n = Signal(serdes_width)
-        rise_out = Signal()
-        fall_out = Signal()
+        if fine_ts_width > 0:
+            timestamp = Signal(fine_ts_width)
+
+            # dout
+            edges = Array([0xff ^ ((1 << i) - 1) for i in range(serdes_width)])
+            edge_out = Signal(serdes_width)
+            edge_out_n = Signal(serdes_width)
+            rise_out = Signal()
+            fall_out = Signal()
+            self.comb += [
+                timestamp.eq(self.rtlink.o.fine_ts),
+                edge_out.eq(edges[timestamp]),
+                edge_out_n.eq(~edge_out),
+                rise_out.eq(~previous_o & o),
+                fall_out.eq(previous_o & ~o),
+                If(override_en,
+                    io.o.eq(override_o)
+                ).Else(
+                    If(rise_out,
+                        io.o.eq(edge_out),
+                    ).Elif(fall_out,
+                        io.o.eq(edge_out_n),
+                    ).Else(
+                        io.o.eq(Replicate(o, serdes_width)),
+                    )
+                )
+            ]
+        else:
+            self.comb += [
+                If(override_en,
+                    io_o.eq(override_o)
+                ).Else(
+                    io_o.eq(o)
+                )
+            ]
+
         self.comb += [
-            timestamp.eq(self.rtlink.o.fine_ts),
-            edge_out.eq(edges[timestamp]),
-            edge_out_n.eq(~edge_out),
-            rise_out.eq(~previous_o & o),
-            fall_out.eq(previous_o & ~o),
-            io.oe.eq(oe),
-            If(rise_out,
-                io.o.eq(edge_out),
-            ).Elif(fall_out,
-                io.o.eq(edge_out_n),
-            ).Else(
-                io.o.eq(Replicate(o, serdes_width)),
-            )
+            io.o.eq(io_o),
         ]
 
         self.sync.rio_phy += [
@@ -64,12 +84,16 @@ class Inout(Module):
         falling = Signal()
         i0 = Signal()
         self.oe = oe = Signal()
+        override_en = Signal()
+        override_o = Signal()
+        override_oe = Signal()
+        self.sensitivity = Signal(2)
+        self.overrides = [override_en, override_o, override_oe]
+        previous_o = Signal()
 
         if fine_ts_width > 0:
 
             # Input
-            self.sensitivity = Signal(2)
-
             self.submodules.pe = pe = PriorityEncoder(serdes_width)
 
             self.sync.rio_phy += i0.eq(io_i[-1])
@@ -84,7 +108,6 @@ class Inout(Module):
             ]
 
             # Output
-            previous_o = Signal()
             timestamp = Signal(fine_ts_width)
             edges = Array([0xff ^ ((1 << i) - 1) for i in range(serdes_width)])
             edge_out = Signal(serdes_width)
@@ -98,12 +121,16 @@ class Inout(Module):
                 edge_out_n.eq(~edge_out),
                 rise_out.eq(~previous_o & o),
                 fall_out.eq(previous_o & ~o),
-                If(rise_out,
-                    io_o.eq(edge_out),
-                ).Elif(fall_out,
-                    io_o.eq(edge_out_n),
+                If(override_en,
+                   io_o.eq(override_o),
                 ).Else(
-                    io_o.eq(Replicate(o, serdes_width)),
+                    If(rise_out,
+                        io_o.eq(edge_out),
+                    ).Elif(fall_out,
+                        io_o.eq(edge_out_n),
+                    ).Else(
+                        io_o.eq(Replicate(o, serdes_width)),
+                    )
                 )
             ]
         else:
@@ -111,7 +138,11 @@ class Inout(Module):
                 io_i.eq(io.i),
                 rising.eq(~i0 & io_i),
                 falling.eq(i0 & ~io_i),
-                io_o.eq(o),
+                If(override_en,
+                    io_o.eq(override_o)
+                ).Else(
+                    io_o.eq(o),
+                ),
                 self.rtlink.i.data.eq(io_i),
             ]
 
@@ -128,6 +159,9 @@ class Inout(Module):
             If(self.rtlink.o.stb,
                 If(self.rtlink.o.address == 0, o.eq(self.rtlink.o.data[0])),
                 If(self.rtlink.o.address == 1, oe.eq(self.rtlink.o.data[0])),
+            ),
+            If(override_en,
+               oe.eq(override_oe)
             ),
             previous_o.eq(o),
         ]

@@ -3,13 +3,14 @@ from artiq.gateware.rtio.phy import ttl_serdes_generic
 
 
 class OSerdese2(Module):
-    def __init__(self, o, oe, ts):
-        t = Signal()
-        self.comb += ts.oe.eq(~t)
+    def __init__(self, pad):
+        self.o = o = Signal(8)
+        self.oe = oe = Signal()
+        self.t = t = Signal()
 
         self.specials += Instance("OSERDESE2", p_DATA_RATE_OQ="DDR",
                                   p_DATA_RATE_TQ="DDR", p_DATA_WIDTH=8,
-                                  p_TRISTATE_WIDTH=1, o_OQ=ts.o, o_TQ=t,
+                                  p_TRISTATE_WIDTH=1, o_OQ=pad, o_TQ=t,
                                   i_CLK=ClockSignal("rtiox4"),
                                   i_CLKDIV=ClockSignal("rio_phy"),
                                   i_D1=o[0], i_D2=o[1], i_D3=o[2], i_D4=o[3],
@@ -20,14 +21,11 @@ class OSerdese2(Module):
 
 class IOSerdese2(Module):
     def __init__(self, pad):
-
         ts = TSTriple()
         self.o = o = Signal(8)
         self.oe = oe = Signal()
         self.i = i = Signal(8)
         self.specials += ts.get_tristate(pad)
-        t = Signal()
-        self.comb += ts.oe.eq(~t)
 
         self.specials += Instance("ISERDESE2", p_DATA_RATE="DDR",
                                   p_DATA_WIDTH=8,
@@ -38,18 +36,23 @@ class IOSerdese2(Module):
                                   i_CE1=1, i_RST=ResetSignal(),
                                   i_CLKDIV=ClockSignal("rio_phy"))
 
-        self.submodules += OSerdese2(o, oe, ts)
+        oserdes = OSerdese2(ts.o)
+        self.submodules += oserdes
+
+        self.comb += [
+            ts.oe.eq(~oserdes.t),
+            oserdes.o.eq(o),
+            oserdes.oe.eq(oe)
+        ]
 
 
 class Output(Module):
     def __init__(self, pad):
-
         serdes = OSerdese2(pad)
         self.submodules += ttl_serdes_generic.Output(serdes, fine_ts_width=3)
 
 
-class InOut(Module):
+class Inout(Module):
     def __init__(self, pad):
-
         serdes = IOSerdese2(pad)
         self.submodules += ttl_serdes_generic.InOut(serdes, fine_ts_width=3)
