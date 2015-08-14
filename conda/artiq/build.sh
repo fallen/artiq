@@ -7,6 +7,9 @@ then
 	source $BUILD_SETTINGS_FILE
 fi
 
+echo "PATH == $PATH"
+echo "LD_LIBRARY_PATH == $LD_LIBRARY_PATH"
+
 ARTIQ_GUI=1 $PYTHON setup.py install --single-version-externally-managed --record=record.txt
 git clone --recursive https://github.com/m-labs/misoc
 export MSCDIR=$SRC_DIR/misoc
