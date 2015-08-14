@@ -2,13 +2,16 @@
 
 BUILD_SETTINGS_FILE=$HOME/.mlabs/build_settings.sh
 
+echo "PATH before == $PATH"
+echo "LD_LIBRARY_PATH before == $LD_LIBRARY_PATH"
+
 if [ -f $BUILD_SETTINGS_FILE ]
 then
 	source $BUILD_SETTINGS_FILE
 fi
 
-echo "PATH == $PATH"
-echo "LD_LIBRARY_PATH == $LD_LIBRARY_PATH"
+echo "PATH after == $PATH"
+echo "LD_LIBRARY_PATH after == $LD_LIBRARY_PATH"
 
 ARTIQ_GUI=1 $PYTHON setup.py install --single-version-externally-managed --record=record.txt
 git clone --recursive https://github.com/m-labs/misoc
