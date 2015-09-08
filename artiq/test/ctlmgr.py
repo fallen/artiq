@@ -1,9 +1,12 @@
 import asyncio
 import os
+import shutil
 import sys
+import tempfile
 import unittest
 
-from artiq.protocols.pc_rpc import Server
+from artiq.protocols.pc_rpc import Server, Client
+from artiq.protocols.pyon import store_file
 from artiq.frontend.artiq_ctlmgr import ControllerManager
 from artiq.protocols.file_db import FlatFileDB
 import artiq.frontend as frontend
@@ -22,14 +25,14 @@ if not examples_present:
 @unittest.skipIf(not examples_present, "examples directory is not present")
 class CtlMgrCase(unittest.TestCase):
     @asyncio.coroutine
-    def start_master(self):
+    def start_master(self, path=examples):
         self.master = yield from asyncio.gather(
             asyncio.create_subprocess_exec(
                 sys.executable,
                 os.path.join(frontend_path, "artiq_master.py"), "-r",
-                os.path.join(examples, "repository"), "-d",
-                os.path.join(examples, "ddb.pyon"), "-p",
-                os.path.join(examples, "pdb.pyon")
+                os.path.join(path, "repository"), "-d",
+                os.path.join(path, "ddb.pyon"), "-p",
+                os.path.join(path, "pdb.pyon")
             )
         )
         self.master = self.master[0]
@@ -60,10 +63,10 @@ class CtlMgrCase(unittest.TestCase):
         rpc_target = CtlMgrRPC()
         self.rpc_server = Server({"ctlmgr": rpc_target}, builtin_terminate=True)
         self.loop.run_until_complete(self.rpc_server.start("::1", 3249))
-        self.loop.run_until_complete(self.start_master())
+        self.master = None
 
     @asyncio.coroutine
-    def _controller_connected(self):
+    def controller_connected(self):
         while True:
             if hasattr(self.ctlmgr.subscriber, "writer"):
                 break
@@ -71,13 +74,18 @@ class CtlMgrCase(unittest.TestCase):
                 yield from asyncio.sleep(0.3)
 
     @asyncio.coroutine
-    def _test_controller_list(self):
-        yield from asyncio.wait_for(self._controller_connected(),
+    def connect_to_master(self):
+        yield from asyncio.wait_for(self.controller_connected(),
                                     10, loop=self.loop)
         while True:
             if self.ctlmgr.controller_db.current_controllers is not None:
                 break
             yield from asyncio.sleep(0.3)
+
+    @asyncio.coroutine
+    def _test_controller_list(self):
+        yield from self.start_master()
+        yield from self.connect_to_master()
         self.assertCountEqual(
             list(
                 self.ctlmgr.controller_db.current_controllers.active_or_queued
@@ -89,8 +97,8 @@ class CtlMgrCase(unittest.TestCase):
 
     @asyncio.coroutine
     def _test_master_crash(self):
-        yield from asyncio.wait_for(self._controller_connected(),
-                                    10, loop=self.loop)
+        yield from self.start_master()
+        yield from self.connect_to_master()
         self.master.kill()
         yield from self.master.wait()
         yield from self.start_master()
@@ -99,9 +107,48 @@ class CtlMgrCase(unittest.TestCase):
     def test_master_crash(self):
         self.loop.run_until_complete(self._test_master_crash())
 
+    @asyncio.coroutine
+    def _test_controller_crash(self):
+        dirpath = tempfile.mkdtemp()
+        try:
+            ddb_obj = {
+                "lda": {
+                    "type": "controller",
+                    "best_effort": True,
+                    "host": "::1",
+                    "port": 3253,
+                    "target_name": "lda",
+                    "retry_timer": 2,
+                    "command": os.path.join(frontend_path,
+                                            "lda_controller.py") +
+                                   " -p {port} --bind {bind} --simulation"
+                }
+            }
+            store_file(os.path.join(dirpath, "ddb.pyon"), ddb_obj)
+            shutil.copy(os.path.join(examples, "pdb.pyon"),
+                        os.path.join(dirpath, "pdb.pyon"))
+            os.mkdir(os.path.join(dirpath, "repository"))
+            yield from self.start_master(dirpath)
+            yield from self.connect_to_master()
+            contname = list(self.ctlmgr.controller_db.current_controllers.active)[0]
+            cont = self.ctlmgr.controller_db.current_controllers.active[contname]
+            yield from cont._terminate()
+            with self.assertRaises(ConnectionRefusedError):
+                Client("::1", 3253, "lda")
+            yield from asyncio.sleep(3)
+            remote = Client("::1", 3253, "lda")
+            self.assertTrue(remote.ping())
+            remote.close()
+        finally:
+            shutil.rmtree(os.path.join(dirpath))
+
+    def test_controller_crash(self):
+        self.loop.run_until_complete(self._test_controller_crash())
+
     def tearDown(self):
-        self.master.kill()
-        self.loop.run_until_complete(self.master.wait())
+        if self.master:
+            self.master.kill()
+            self.loop.run_until_complete(self.master.wait())
         self.loop.run_until_complete(self.ctlmgr.stop())
         self.loop.run_until_complete(self.rpc_server.stop())
         self.loop.close()
