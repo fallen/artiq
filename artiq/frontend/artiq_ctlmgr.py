@@ -230,6 +230,7 @@ class ControllerManager(TaskObject):
         try:
             subscriber = Subscriber("devices",
                                     self.controller_db.sync_struct_init)
+            self.subscriber = subscriber
             while True:
                 try:
                     def set_host_filter():
