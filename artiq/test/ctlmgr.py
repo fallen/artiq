@@ -67,7 +67,8 @@ class CtlMgrCase(unittest.TestCase):
             retry_now = self.ctlmgr.retry_now
 
         rpc_target = CtlMgrRPC()
-        self.rpc_server = Server({"ctlmgr": rpc_target}, builtin_terminate=True)
+        self.rpc_server = Server({"ctlmgr": rpc_target},
+                                 builtin_terminate=True)
         self.loop.run_until_complete(self.rpc_server.start("::1", 3249))
         self.master = None
 
@@ -139,9 +140,10 @@ class CtlMgrCase(unittest.TestCase):
             os.mkdir(os.path.join(dirpath, "repository"))
             yield from self.start_master(dirpath)
             yield from self.connect_to_master()
-            contname = list(self.ctlmgr.controller_db.current_controllers.active)[0]
-            cont = self.ctlmgr.controller_db.current_controllers.active[contname]
-            yield from cont._terminate()
+            contname = list(
+                self.ctlmgr.controller_db.current_controllers.active)[0]
+            co = self.ctlmgr.controller_db.current_controllers.active[contname]
+            yield from co._terminate()
             with self.assertRaises(ConnectionRefusedError):
                 Client("::1", 3253, "lda")
             yield from asyncio.sleep(3)
