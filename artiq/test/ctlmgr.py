@@ -37,6 +37,12 @@ class CtlMgrCase(unittest.TestCase):
         )
         self.master = self.master[0]
 
+    @asyncio.coroutine
+    def stop_master(self):
+        if self.master is not None:
+            self.master.kill()
+            yield from self.master.wait()
+
     def setUp(self):
         if os.name == "nt":
             self.loop = asyncio.ProactorEventLoop()
@@ -74,13 +80,18 @@ class CtlMgrCase(unittest.TestCase):
                 yield from asyncio.sleep(0.3)
 
     @asyncio.coroutine
-    def connect_to_master(self):
-        yield from asyncio.wait_for(self.controller_connected(),
-                                    10, loop=self.loop)
+    def received_controller_list(self):
         while True:
             if self.ctlmgr.controller_db.current_controllers is not None:
                 break
             yield from asyncio.sleep(0.3)
+
+    @asyncio.coroutine
+    def connect_to_master(self):
+        yield from asyncio.wait_for(self.controller_connected(),
+                                    10, loop=self.loop)
+        yield from asyncio.wait_for(self.received_controller_list(),
+                                    10, loop=self.loop)
 
     @asyncio.coroutine
     def _test_controller_list(self):
@@ -99,9 +110,7 @@ class CtlMgrCase(unittest.TestCase):
     def _test_master_crash(self):
         yield from self.start_master()
         yield from self.connect_to_master()
-        self.master.kill()
-        yield from self.master.wait()
-        yield from self.start_master()
+        yield from self.stop_master()
         yield from self._test_controller_list()
 
     def test_master_crash(self):
@@ -146,9 +155,7 @@ class CtlMgrCase(unittest.TestCase):
         self.loop.run_until_complete(self._test_controller_crash())
 
     def tearDown(self):
-        if self.master:
-            self.master.kill()
-            self.loop.run_until_complete(self.master.wait())
+        self.loop.run_until_complete(self.stop_master())
         self.loop.run_until_complete(self.ctlmgr.stop())
         self.loop.run_until_complete(self.rpc_server.stop())
         self.loop.close()
